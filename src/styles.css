@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+
+  --color-ink: #0c1112;
+  --color-panel: #151c1d;
+  --color-panel-2: #1e292a;
+  --color-foam: #e7eeec;
+  --color-mist: #93a19d;
+  --color-line: #2a3836;
+  --color-tide: #3dbeae;
+  --color-tide-ink: #06211d;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 28px;
+}
+
+:root {
+  --motion-quick: 150ms;
+  --motion-fast: 250ms;
+  --motion-emphasis: 500ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    background: var(--color-ink);
+    color: var(--color-foam);
+  }
+
+  body {
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-tide);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-tide) 35%, transparent);
+    color: var(--color-foam);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-1.75rem);
+  }
+}
+
+.sheet-overlay[data-state="open"] {
+  animation: fade-in var(--motion-fast) var(--ease-smooth-out);
+}
+
+.sheet-content[data-state="open"] {
+  animation: sheet-in var(--motion-fast) var(--ease-smooth-out);
+}
+
+.rise {
+  animation: rise var(--motion-emphasis) var(--ease-smooth-out) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-overlay[data-state="open"],
+  .sheet-content[data-state="open"],
+  .rise {
+    animation: none;
+  }
+
+  .rise {
+    opacity: 0;
+  }
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+}

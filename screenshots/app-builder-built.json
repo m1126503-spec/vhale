@@ -1,0 +1,38 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Vhale",
+      "hasCanvas": false,
+      "bodyTextLen": 799,
+      "bodyTextHash": "a848140666351b6e1ac7b982cd450020aeb14b2f37f527afb62762d35e225203",
+      "bodyTextPrefix": "Telegram · @Medved_23bot V Vhale Мини-приложение для бота. Игрок",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Vhale",
+      "hasCanvas": false,
+      "bodyTextLen": 249,
+      "bodyTextHash": "68d8ca33ffc1efe49282d072939f158e52a3f53419b5fe6dd2de00a76eef8787",
+      "bodyTextPrefix": "V Vhale @Medved_23bot Добыча открыта Касайтесь кита, пока есть э",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": false,
+  "baselineReasons": []
+}
