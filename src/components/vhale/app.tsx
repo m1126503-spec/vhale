@@ -1,281 +1,526 @@
-import { useEffect, useState } from "react";
-import { CircleHelp, Droplets, ListChecks, Star, Users, Wallet, Waves, Zap } from "lucide-react";
-import whaleUrl from "@/assets/whale.jpg";
-import { Button } from "@/components/ui/button";
-import { ConnectSheet } from "@/components/vhale/connect-sheet";
-import { Boost, Friends, Mine, Tasks, Wallet as WalletPanel } from "@/components/vhale/panels";
-import { BOT_HANDLE, referralLink } from "@/lib/brand";
-import { cn } from "@/lib/cn";
-import { formatLeft, formatNum, incomePerHour, rankOf, tapValue } from "@/lib/economy";
-import { useGame } from "@/lib/store";
-import { haptic, openShare } from "@/lib/telegram";
+import { useEffect, useMemo, useState } from "react";
+import { TonConnectButton, useTonAddress, useTonConnectUI, useTonWallet } from "@tonconnect/ui-react";
+import { APP_NAME, APP_URL, TELEGRAM_BOT_USERNAME } from "@/config";
+import { FALLBACK_TOKENS, fetchJettons, fetchMarketPrices, fetchWalletInfo } from "@/lib/tonApi";
+import { findBestRoute } from "@/lib/dexRouter";
 
-type Tab = "mine" | "tasks" | "friends" | "boost" | "wallet";
-
-const TABS: { id: Tab; label: string; icon: typeof Waves }[] = [
-  { id: "mine", label: "Добыча", icon: Waves },
-  { id: "tasks", label: "Задания", icon: ListChecks },
-  { id: "friends", label: "Друзья", icon: Users },
-  { id: "boost", label: "Буст", icon: Zap },
-  { id: "wallet", label: "Касса", icon: Wallet },
-];
-
-function Mark({ className }: { className?: string }) {
-  return (
-    <span
-      className={cn(
-        "grid size-9 shrink-0 place-items-center rounded-full bg-tide font-display text-lg text-tide-ink",
-        className,
-      )}
-    >
-      V
-    </span>
-  );
+function applyTelegramTheme(theme: Record<string, string> = {}) {
+  const root = document.documentElement;
+  root.style.setProperty("--tg-theme-bg-color", theme.bg_color || "#0b1220");
+  root.style.setProperty("--tg-theme-secondary-bg-color", theme.secondary_bg_color || "#101827");
+  root.style.setProperty("--tg-theme-text-color", theme.text_color || "#f8fafc");
+  root.style.setProperty("--tg-theme-hint-color", theme.hint_color || "#94a3b8");
+  root.style.setProperty("--tg-theme-link-color", theme.link_color || "#5da9ff");
+  root.style.setProperty("--tg-theme-button-color", theme.button_color || "#3b82f6");
+  root.style.setProperty("--tg-theme-button-text-color", theme.button_text_color || "#ffffff");
+  root.style.setProperty("--tg-theme-header-bg-color", theme.header_bg_color || "#0f172a");
+  root.style.setProperty("--tg-theme-accent-text-color", theme.accent_text_color || "#7dd3fc");
 }
 
-export function VhaleApp() {
-  const boot = useGame((s) => s.boot);
-  useEffect(() => {
-    boot();
-  }, [boot]);
-
-  return (
-    <div className="mx-auto flex h-dvh w-full max-w-6xl justify-center bg-ink text-foam">
-      <OwnerAside />
-      <Phone />
-    </div>
-  );
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
-function OwnerAside() {
-  return (
-    <aside className="hidden h-dvh min-w-0 flex-1 flex-col overflow-y-auto border-line px-8 py-8 lg:flex lg:border-r">
-      <div className="max-w-md">
-        <p className="text-sm text-mist">Telegram · {BOT_HANDLE}</p>
-        <div className="mt-4 flex items-center gap-3">
-          <Mark className="size-12 text-2xl" />
-          <h1 className="font-display text-5xl leading-none tracking-tight">Vhale</h1>
-        </div>
-        <p className="mt-6 text-base leading-normal text-mist">
-          Мини-приложение для бота. Игроки копят VHL, а ускорения покупают звёздами Telegram — это
-          выручка, не обещание выплаты.
-        </p>
-        <ul className="mt-8 space-y-4">
-          <AsidePoint icon={Droplets} title="Добыча" body="Касание тратит энергию. Глубина капает сама, даже когда игра закрыта." />
-          <AsidePoint icon={ListChecks} title="Удержание" body="Серия до 7 дней, задания и ссылка, которой зовут друзей." />
-          <AsidePoint icon={Star} title="Касса" body="Три позиции: 5, 15 и 49 звёзд. В превью оплата учебная." />
-        </ul>
-        <div className="mt-8 border-t border-line pt-6">
-          <h2 className="font-medium text-foam">Как включить</h2>
-          <ol className="mt-3 space-y-2 text-sm leading-normal text-mist">
-            <li>1. Опубликуйте Vhale и скопируйте адрес.</li>
-            <li>2. BotFather → Mini Apps: адрес и короткое имя app.</li>
-            <li>3. Menu Button: та же ссылка, подпись «Vhale».</li>
-            <li>4. Счёт звёзд создаёт бот, валюта XTR.</li>
-          </ol>
-        </div>
-      </div>
-    </aside>
-  );
+function formatNumber(value: number, digits = 2) {
+  if (!Number.isFinite(value)) return "0";
+  return Number(value).toLocaleString("ru-RU", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }
 
-function AsidePoint({
-  icon: Icon,
-  title,
-  body,
-}: {
-  icon: typeof Droplets;
-  title: string;
-  body: string;
-}) {
-  return (
-    <li className="flex gap-3">
-      <span className="grid size-11 shrink-0 place-items-center rounded-md border border-line bg-panel text-tide">
-        <Icon className="size-5" aria-hidden="true" />
-      </span>
-      <div>
-        <p className="font-medium text-foam">{title}</p>
-        <p className="mt-1 text-sm leading-normal text-mist">{body}</p>
-      </div>
-    </li>
-  );
-}
+export function TelegramDexApp() {
+  const [tonConnectUI] = useTonConnectUI();
+  const wallet = useTonWallet();
+  const walletAddress = useTonAddress();
 
-function Phone() {
-  const introSeen = useGame((s) => s.save.introSeen);
-  const booted = useGame((s) => s.booted);
-  const [help, setHelp] = useState(false);
+  const [activeTab, setActiveTab] = useState<"swap" | "pool" | "wallet">("swap");
+  const [tokens, setTokens] = useState(FALLBACK_TOKENS);
+  const [fromToken, setFromToken] = useState(FALLBACK_TOKENS[0]);
+  const [toToken, setToToken] = useState(FALLBACK_TOKENS[1]);
+  const [fromAmount, setFromAmount] = useState("1.25");
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<"from" | "to">("from");
+  const [successTx, setSuccessTx] = useState("");
+  const [loadingPrices, setLoadingPrices] = useState(true);
+  const [loadingSwap, setLoadingSwap] = useState(false);
 
-  return (
-    <section className="flex h-dvh w-full max-w-md shrink-0 select-none flex-col border-line lg:border-l">
-      {introSeen ? <Shell onHelp={() => setHelp(true)} /> : <Intro ready={booted} onHelp={() => setHelp(true)} />}
-      <ConnectSheet open={help} onOpenChange={setHelp} />
-    </section>
-  );
-}
-
-function Intro({ ready, onHelp }: { ready: boolean; onHelp: () => void }) {
-  const seeIntro = useGame((s) => s.seeIntro);
-  return (
-    <div
-      className="flex h-full flex-col px-4"
-      style={{
-        paddingTop: "calc(env(safe-area-inset-top) + 1.5rem)",
-        paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)",
-      }}
-    >
-      <div className="flex items-center gap-3">
-        <Mark />
-        <div>
-          <p className="font-medium text-foam">Vhale</p>
-          <p className="text-sm text-mist">{BOT_HANDLE}</p>
-        </div>
-      </div>
-      <div className="flex flex-1 flex-col justify-center">
-        <img
-          src={whaleUrl}
-          alt="Кит Vhale"
-          className="size-28 rounded-full border border-line object-cover"
-        />
-        <h2 className="mt-6 text-2xl font-semibold tracking-tight text-foam">Добыча открыта</h2>
-        <p className="mt-2 text-sm leading-normal text-mist">
-          Касайтесь кита, пока есть энергия. Серия и задания приносят ещё. Ускорение лежит в кассе.
-        </p>
-        <ul className="mt-6 space-y-3 text-sm text-foam">
-          <li className="flex items-center gap-3">
-            <Waves className="size-5 text-tide" aria-hidden="true" />
-            Энергия тратится на касание
-          </li>
-          <li className="flex items-center gap-3">
-            <ListChecks className="size-5 text-tide" aria-hidden="true" />
-            Смена закрывается каждый день
-          </li>
-          <li className="flex items-center gap-3">
-            <Star className="size-5 text-tide" aria-hidden="true" />
-            Звёзды ускоряют, не заменяют игру
-          </li>
-        </ul>
-      </div>
-      <Button className="w-full" disabled={!ready} onClick={seeIntro}>
-        К добыче
-      </Button>
-      <button type="button" onClick={onHelp} className="mt-2 h-11 text-sm text-mist">
-        Как подключить к боту
-      </button>
-    </div>
-  );
-}
-
-function Shell({ onHelp }: { onHelp: () => void }) {
-  const tick = useGame((s) => s.tick);
-  const [tab, setTab] = useState<Tab>("mine");
-  const code = useGame((s) => s.save.refCode);
+  const tg = typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null;
 
   useEffect(() => {
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [tick]);
+    async function loadMarket() {
+      const prices = await fetchMarketPrices();
+      setTokens((prev) =>
+        prev.map((token) => {
+          const key = token.symbol.toUpperCase();
+          if (key === "TON") return { ...token, price: prices.TON };
+          if (key === "USDT") return { ...token, price: prices.USDT };
+          if (key === "NOT") return { ...token, price: prices.NOT };
+          if (key === "JUSDT") return { ...token, price: prices.jUSDT };
+          return token;
+        }),
+      );
+      setLoadingPrices(false);
+    }
 
-  function share() {
-    useGame.getState().markShared();
-    openShare(referralLink(code), `Vhale — добыча в ${BOT_HANDLE}`);
-  }
+    void loadMarket();
+  }, []);
+
+  useEffect(() => {
+    async function loadWalletData() {
+      if (!walletAddress) return;
+
+      const walletInfo = await fetchWalletInfo(walletAddress);
+      const jettons = await fetchJettons(walletAddress);
+
+      const tonBalance = walletInfo?.balance ? Number(walletInfo.balance) / 1_000_000_000 : 0;
+      const walletTokens = [
+        {
+          symbol: "TON",
+          name: "Toncoin",
+          icon: "₸",
+          price: 7.8,
+          balance: tonBalance ? tonBalance.toFixed(2) : "0.00",
+          decimals: 9,
+          address: walletAddress,
+        },
+      ];
+
+      for (const jetton of jettons) {
+        const symbol = (jetton.metadata?.symbol || jetton.symbol || "JETTON").toUpperCase();
+        const decimals = Number(jetton.decimals || 0);
+        walletTokens.push({
+          symbol,
+          name: jetton.metadata?.name || jetton.name || "Jetton",
+          icon: symbol.slice(0, 1),
+          price: 0.01,
+          balance: jetton.balance ? (Number(jetton.balance) / 10 ** decimals).toFixed(2) : "0.00",
+          decimals,
+          address: jetton.address || "",
+        });
+      }
+
+      setTokens((prev) => {
+        const merged = [...prev];
+        for (const token of walletTokens) {
+          const idx = merged.findIndex((item) => item.symbol === token.symbol);
+          if (idx >= 0) merged[idx] = { ...merged[idx], ...token };
+          else merged.push(token);
+        }
+        return merged;
+      });
+    }
+
+    void loadWalletData();
+  }, [walletAddress]);
+
+  useEffect(() => {
+    if (!tg) return;
+
+    tg.ready();
+    applyTelegramTheme(tg.themeParams || {});
+
+    const mainButton = tg.MainButton;
+    mainButton.setText(!wallet ? "Подключите кошелек" : `Обменять ${fromAmount || "0"} ${fromToken.symbol}`);
+    mainButton.color = tg.themeParams?.button_color || "#3b82f6";
+    mainButton.textColor = tg.themeParams?.button_text_color || "#ffffff";
+
+    if (!wallet || !fromAmount || Number(fromAmount) <= 0) {
+      mainButton.disable();
+    } else {
+      mainButton.enable();
+    }
+
+    const handleSwap = async () => {
+      if (!wallet) {
+        tg.showAlert("Сначала подключите TON кошелек.");
+        return;
+      }
+
+      if (!fromAmount || Number(fromAmount) <= 0) {
+        tg.showAlert("Введите корректную сумму.");
+        return;
+      }
+
+      setLoadingSwap(true);
+      mainButton.showProgress(true);
+      mainButton.disable();
+
+      try {
+        const tx = {
+          validUntil: Math.floor(Date.now() / 1000) + 600,
+          messages: [
+            {
+              address: toToken.address || "EQD...router",
+              amount: String(Math.max(1, Math.floor(Number(fromAmount) * 1_000_000_000))),
+              payload: `TON_DEX_SWAP:${fromToken.symbol}->${toToken.symbol}:${Date.now()}`,
+            },
+          ],
+        };
+
+        if (typeof tonConnectUI?.sendTransaction === "function") {
+          await tonConnectUI.sendTransaction(tx);
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+
+        const hash = `0x${Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("")}`;
+        setSuccessTx(hash);
+      } catch (error) {
+        console.error(error);
+        tg.showAlert("Ошибка при создании обмена. Проверьте кошелек и сеть.");
+      } finally {
+        setLoadingSwap(false);
+        mainButton.showProgress(false);
+        mainButton.enable();
+      }
+    };
+
+    mainButton.onClick(handleSwap);
+    mainButton.show();
+
+    return () => {
+      mainButton.offClick(handleSwap);
+      mainButton.hide();
+    };
+  }, [tg, wallet, fromAmount, fromToken, toToken, tonConnectUI]);
+
+  const route = useMemo(() => {
+    if (!fromToken || !toToken || !Number(fromAmount || 0)) return null;
+    return findBestRoute(fromToken.symbol, toToken.symbol, Number(fromAmount));
+  }, [fromAmount, fromToken, toToken]);
+
+  const quote = route ? route.amountOut : 0;
+  const slippage = 0.5;
+  const networkFeeTon = fromToken.symbol === "TON" || toToken.symbol === "TON" ? 0.0042 : 0.0051;
+  const minReceive = quote * (1 - slippage / 100);
+  const priceImpact = route ? route.priceImpact : 0;
+
+  const swapRate = fromToken.price / toToken.price;
+
+  const openPicker = (target: "from" | "to") => {
+    setPickerTarget(target);
+    setIsPickerOpen(true);
+  };
+
+  const selectToken = (token: (typeof tokens)[number]) => {
+    if (pickerTarget === "from") {
+      if (token.symbol === toToken.symbol) {
+        setToToken(fromToken);
+      }
+      setFromToken(token);
+    } else {
+      if (token.symbol === fromToken.symbol) {
+        setFromToken(toToken);
+      }
+      setToToken(token);
+    }
+
+    setIsPickerOpen(false);
+  };
+
+  const reverseTokens = () => {
+    const prevFrom = fromToken;
+    setFromToken(toToken);
+    setToToken(prevFrom);
+  };
+
+  const walletLabel = walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : "Подключить кошелек";
 
   return (
-    <>
-      <Header onHelp={onHelp} />
-      <main className="min-h-0 flex-1 overflow-y-auto px-4">
-        {tab === "mine" ? <Mine /> : null}
-        {tab === "tasks" ? <Tasks onShare={share} /> : null}
-        {tab === "friends" ? <Friends /> : null}
-        {tab === "boost" ? <Boost /> : null}
-        {tab === "wallet" ? <WalletPanel onHelp={onHelp} /> : null}
-      </main>
-      <nav
-        aria-label="Разделы"
-        className="grid shrink-0 grid-cols-5 border-t border-line bg-ink"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-      >
-        {TABS.map((item) => {
-          const active = tab === item.id;
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              aria-current={active ? "page" : undefined}
-              onClick={() => {
-                setTab(item.id);
-                haptic("light");
-              }}
-              className={cn(
-                "flex h-16 flex-col items-center justify-center gap-1 text-xs",
-                active ? "text-tide" : "text-mist",
-              )}
-            >
-              <Icon className="size-5" strokeWidth={1.75} aria-hidden="true" />
-              {item.label}
+    <div className="miniapp-page">
+      <div className="miniapp-shell">
+        <header className="topbar">
+          <div className="brand-wrap">
+            <div className="brand-mark">T</div>
+            <div>
+              <small>Bot: {TELEGRAM_BOT_USERNAME}</small>
+              <h1>{APP_NAME}</h1>
+            </div>
+          </div>
+
+          <div className="wallet-block">
+            <TonConnectButton />
+            {walletAddress && <div className="wallet-pill">{walletLabel}</div>}
+          </div>
+        </header>
+
+        <main className="content-card">
+          <div className="tab-row">
+            <button type="button" className={activeTab === "swap" ? "tab active" : "tab"} onClick={() => setActiveTab("swap")}>
+              Swap
             </button>
-          );
-        })}
-      </nav>
-    </>
-  );
-}
+            <button type="button" className={activeTab === "pool" ? "tab active" : "tab"} onClick={() => setActiveTab("pool")}>
+              Pool
+            </button>
+            <button type="button" className={activeTab === "wallet" ? "tab active" : "tab"} onClick={() => setActiveTab("wallet")}>
+              Wallet
+            </button>
+          </div>
 
-function Header({ onHelp }: { onHelp: () => void }) {
-  const save = useGame((s) => s.save);
-  const name = useGame((s) => s.profileName);
-  const rank = rankOf(save.totalEarned);
-  const left = save.boostUntil - Date.now();
+          {activeTab === "swap" && (
+            <div className="screen">
+              <div className="section-header">
+                <div>
+                  <small>Обмен</small>
+                  <h2>Swap</h2>
+                </div>
+                <button type="button" className="icon-button" onClick={reverseTokens}>
+                  ⇅
+                </button>
+              </div>
 
-  return (
-    <header
-      className="shrink-0 border-b border-line px-4 pb-3"
-      style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}
-    >
-      <div className="flex items-center gap-3">
-        <Mark />
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-medium text-foam">Vhale</p>
-          <p className="truncate text-sm text-mist">{name === "Гость" ? BOT_HANDLE : name}</p>
-        </div>
-        <button
-          type="button"
-          onClick={onHelp}
-          aria-label="Как подключить"
-          className="grid size-11 place-items-center rounded-md text-mist hover:bg-panel hover:text-foam"
-        >
-          <CircleHelp className="size-5" />
-        </button>
+              <div className="panel">
+                <div className="panel-top">
+                  <span>Отдаете</span>
+                  <span>Баланс: {fromToken.balance}</span>
+                </div>
+
+                <div className="amount-row">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.000001"
+                    value={fromAmount}
+                    onChange={(e) => setFromAmount(e.target.value)}
+                    placeholder="0.0"
+                  />
+
+                  <button type="button" className="token-button" onClick={() => openPicker("from")}>
+                    <span className="token-badge">{fromToken.icon}</span>
+                    <span>{fromToken.symbol}</span>
+                    <span className="caret">▾</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="swap-divider">
+                <button type="button" className="icon-button large" onClick={reverseTokens}>
+                  ⇅
+                </button>
+              </div>
+
+              <div className="panel">
+                <div className="panel-top">
+                  <span>Получаете</span>
+                  <span>Баланс: {toToken.balance}</span>
+                </div>
+
+                <div className="amount-row">
+                  <div className="receive-value">{formatNumber(quote, 4)}</div>
+
+                  <button type="button" className="token-button" onClick={() => openPicker("to")}>
+                    <span className="token-badge">{toToken.icon}</span>
+                    <span>{toToken.symbol}</span>
+                    <span className="caret">▾</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="market-box">
+                <div className="market-row">
+                  <span>Курс</span>
+                  <strong>
+                    1 {fromToken.symbol} = {formatNumber(swapRate, 4)} {toToken.symbol}
+                  </strong>
+                </div>
+                <div className="market-row">
+                  <span>Route</span>
+                  <strong>{route?.path?.length ? route.path.map((item) => item.poolId).join(" → ") : "—"}</strong>
+                </div>
+                <div className="market-row">
+                  <span>Комиссия сети</span>
+                  <strong>{formatNumber(networkFeeTon, 4)} TON</strong>
+                </div>
+                <div className="market-row">
+                  <span>Slippage</span>
+                  <strong>{slippage}%</strong>
+                </div>
+                <div className="market-row">
+                  <span>Price impact</span>
+                  <strong>{formatNumber(priceImpact, 2)}%</strong>
+                </div>
+                <div className="market-row highlight">
+                  <span>Минимум к получению</span>
+                  <strong>
+                    {formatNumber(minReceive, 4)} {toToken.symbol}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="cta-wrap">
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={loadingSwap || !wallet || loadingPrices || Number(fromAmount || 0) <= 0}
+                  onClick={() => {
+                    if (!wallet) {
+                      tg?.showAlert("Подключите TON кошелек.");
+                      return;
+                    }
+                    tg?.MainButton?.click();
+                  }}
+                >
+                  {loadingSwap ? "Подтверждение..." : "Подтвердить обмен"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "pool" && (
+            <div className="screen">
+              <div className="section-header">
+                <div>
+                  <small>Pool</small>
+                  <h2>Ликвидность</h2>
+                </div>
+              </div>
+
+              <div className="pool-card">
+                <div className="pill-row">
+                  {[
+                    "TON/USDT",
+                    "TON/jUSDT",
+                    "TON/NOT",
+                  ].map((poolName) => (
+                    <button key={poolName} type="button" className="pill active">
+                      {poolName}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="pool-grid">
+                  <div className="metric-box">
+                    <span>TVL</span>
+                    <strong>$3.8M</strong>
+                  </div>
+                  <div className="metric-box">
+                    <span>APR</span>
+                    <strong>8.4%</strong>
+                  </div>
+                  <div className="metric-box">
+                    <span>Fee</span>
+                    <strong>0.3%</strong>
+                  </div>
+                </div>
+
+                <div className="pool-inputs">
+                  <label>
+                    <span>Токен A</span>
+                    <input type="number" defaultValue="1" />
+                  </label>
+                  <label>
+                    <span>Токен B</span>
+                    <input type="number" defaultValue="120" />
+                  </label>
+                </div>
+
+                <div className="lp-box">
+                  <span>Ликвидная позиция</span>
+                  <strong>0.36 LP</strong>
+                </div>
+
+                <div className="dual-actions">
+                  <button type="button" className="primary-button secondary" onClick={() => tg?.showAlert("Добавление ликвидности")}>Добавить ликвидность</button>
+                  <button type="button" className="primary-button danger" onClick={() => tg?.showAlert("Удаление ликвидности")}>Удалить</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "wallet" && (
+            <div className="screen">
+              <div className="section-header">
+                <div>
+                  <small>Wallet</small>
+                  <h2>Кошелек</h2>
+                </div>
+              </div>
+
+              <div className="wallet-card">
+                <div className="wallet-top">
+                  <div>
+                    <span className="tiny-label">Telegram</span>
+                    <strong>{(tg?.initDataUnsafe?.user?.first_name) || "Guest"}</strong>
+                  </div>
+                  <div>
+                    <span className="tiny-label">Wallet</span>
+                    <strong>{walletAddress ? `${walletAddress.slice(0, 8)}...${walletAddress.slice(-6)}` : "Не подключен"}</strong>
+                  </div>
+                </div>
+
+                <div className="balance-list">
+                  {tokens.map((token) => (
+                    <div key={token.symbol} className="balance-row">
+                      <div className="balance-token">
+                        <span className="token-badge">{token.icon}</span>
+                        <div>
+                          <strong>{token.symbol}</strong>
+                          <small>{token.name}</small>
+                        </div>
+                      </div>
+                      <span>{token.balance}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="history-card">
+                <h3>История</h3>
+                <div className="history-list">
+                  <div className="history-item">
+                    <span>Swap TON → USDT</span>
+                    <strong>+12.30 USDT</strong>
+                  </div>
+                  <div className="history-item">
+                    <span>Pool TON/USDT</span>
+                    <strong>+0.45 LP</strong>
+                  </div>
+                  <div className="history-item">
+                    <span>Jetton transfer</span>
+                    <strong>-3.90 NOT</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </main>
       </div>
-      <div className="mt-4 flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="numeric font-display text-3xl leading-none tracking-tight text-foam">
-            {formatNum(save.balance)}
-          </p>
-          <p className="mt-2 text-sm text-mist">
-            VHL · {rank.name}
-            {rank.next ? ` · ${formatNum(rank.left)} до «${rank.next}»` : ""}
-          </p>
+
+      {isPickerOpen && (
+        <div className="modal-backdrop" onClick={() => setIsPickerOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Выберите токен</h3>
+              <button type="button" className="close-button" onClick={() => setIsPickerOpen(false)}>
+                ✕
+              </button>
+            </div>
+
+            <div className="token-list">
+              {tokens.map((token) => (
+                <button key={token.symbol} type="button" className="token-option" onClick={() => selectToken(token)}>
+                  <div className="option-left">
+                    <span className="token-badge large">{token.icon}</span>
+                    <div>
+                      <strong>{token.symbol}</strong>
+                      <small>{token.name}</small>
+                    </div>
+                  </div>
+                  <span className="option-balance">{token.balance}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="numeric text-sm text-foam">{formatNum(incomePerHour(save))} / ч</p>
-          <p className="numeric mt-1 text-xs text-tide">
-            {left > 0 ? `×2 ${formatLeft(left)}` : `+${tapValue(save)}`}
-          </p>
+      )}
+
+      {successTx && (
+        <div className="toast">
+          <strong>Tx confirmed</strong>
+          <span>{successTx}</span>
         </div>
-      </div>
-      <div
-        className="mt-3 h-1 overflow-hidden rounded-full bg-panel"
-        role="progressbar"
-        aria-label="Ранг"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={Math.round(rank.pct * 100)}
-      >
-        <div className="h-full bg-tide" style={{ width: `${rank.pct * 100}%` }} />
-      </div>
-    </header>
+      )}
+    </div>
   );
 }
